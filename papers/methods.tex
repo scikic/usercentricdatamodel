@@ -1,0 +1,252 @@
+\documentclass[a4paper]{article}
+\usepackage{float}
+\usepackage{wrapfig}
+\usepackage{subfig}
+\usepackage{graphicx}
+\usepackage{multicol} 
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{abstract}
+\renewcommand{\abstractnamefont}{\normalfont\bfseries}
+\renewcommand{\abstracttextfont}{\normalfont\small\itshape}
+\usepackage[authoryear]{natbib}
+\usepackage[normalem]{ulem}
+\usepackage{breqn}
+
+\title{\textbf{Differential Privacy and Gaussian Processes}} % Article title
+\author{
+\large
+\textsc{Michael Smith}\thanks{Corresponding author, \href{mailto:m.t.smith@sheffield.ac.uk}{m.t.smith@sheffield.ac.uk}}, \textsc{Neil Lawrence}\\[2mm]
+\normalsize University of Sheffield\\ % Your institution
+\vspace{-5mm}
+}
+
+\begin{document}
+\maketitle 
+\begin{abstract}
+\noindent This is a...
+\end{abstract}
+
+\begin{multicols}{2}
+
+\section{Introduction}
+
+\subsection{Differential Privacy}
+
+The application of Differential Privacy allows the results of queries about a dataset to be released while minimising the release of information about individual records. In general, differential privacy involves the output being only probabilistically dependent on the database entries. For example one might add Laplacian noise to the sum of rows to obscure the exact total. Or in the case of a more complex algorithm, such as regression, one might add the noise to the gradient and the intersect.
+
+We consider a randomised algorithm $M$. This is the algorithm which, for example sums a column and adds noise. It is $(\varepsilon, \delta)$-differentially private if, for all $m$ across its whole range (i.e. all its possible outputs), and for all neighbouring databases $D$ and $D'$ (i.e. databases which only differ by one row),
+
+$$P\Big( M(D) = m \Big) \leq e^{\varepsilon} P\Big( M(D') = m \Big) + \delta$$
+
+This says roughly that any given output value is almost equally likely regardless of the value of one row. This is intuitively what we want from an algorithm: We don't want one result to give an attacker strong evidence for a particular row's value. $\varepsilon$ puts a bound on how much privacy is lost by the query, with a smaller $\varepsilon$ meaning more privacy. $\delta$ says this inequality only holds with probability $1-\delta$.
+
+\subsection{Machine Learning and DP}
+
+As described in \citet{berlioz2015applying}, this randomness or noise can be added at three stages in a machine learning process; to the (i) input data, prior to its use in the algorithm, (ii) to components of the calculation (such as to the gradients) or (iii) to the output of the algorithm (to the gradient and intersect of a linear regression, for example).
+
+Our experimentation in this field is also driven by the idea of a user-centric data model, in which the user retains control over their data, but can still assist a machine learner by contributing as a row in the database. Considering the three stages above, this concept of keeping the user's data private, even from the algorithm, can be achieved by adding noise at stage (i) the input and (ii) the calculation components, but option (iii) means the algorithm has access to non-differentially private aspects of the user's data.
+
+\section{Adding noise to the outputs}
+
+In this section we investigate a method for providing differential-privacy guarantees to the output of a Gaussian Process.
+
+\subsection{Differential Privacy for functions}
+
+We depend heavily in the following analysis on the work of \citet{hall2013differential}, who extended differential privacy to apply to functions and functionals. Briefly, we consider a function, $f$, that we want to release (with privacy guarantees on its inputs). If the family of functions from which this function is sampled lies in the reproducing kernel Hilbert space (RKHS) then one can consider the function as a point in the RKHS. We can consider another function, $f'$, which represents another function that's been generated using identical data except for the perturbation of one row. The distance, $||f - f'||$, between these points is bounded by the sensitivity, $\Delta$. Where the norm is defined to be $|| g || = \sqrt{\langle g,g \rangle_{H}}$. Specifically the sensitivity is written:
+
+$$\Delta \geq sup_{D \sim D'} || f_D - f_{D'} ||_H$$
+
+I.e. the sensitivity must be greater or equal to the largest distance between the functions (in RKHS).
+
+\citet{hall2013differential} showed that one can ensure that a version of $f$, function $\widetilde{f}$ is $(\varepsilon, \delta)$-differentially private by adding a scaled sample from the Gaussian distribution $G$ (which uses the same kernel as our data). We scale the sample by:
+
+$$\Delta c(\delta) \over \varepsilon$$
+
+where:
+
+$$c(\delta) \geq \sqrt{2 log \frac{2}{\delta}}$$
+
+\subsection{Extending to Gaussian Processes}
+
+We have some data (at inputs $X$ and at outputs $Y$). We assume for now that the inputs are non-private columns, while the outputs are private. For example, the inputs could be the ages of people (which one might feel are non-private) while the outputs are the number of medications that person is currently taking (which one might feel is private).
+
+We want to find the sensitivity of the mean function of a Gaussian Process. This will allow us to add the correctly scaled sample to ensure its differentially private release. We need to know the possible values that the output $\bm{y}$ can take. We consider in this paper that the $\bm{y}$ values are the result of a histogram query, and thus have a sensitivity of 1 \citep{dwork2014algorithmic}.
+
+Using the notation of \citet{williams2006gaussian}, the conditional distribution from a Gaussian Process at a test point $\bm{x}_*$ has mean:
+\begin{equation}
+\bar{f}_* = \bm{k}_*^\top \left( K' + \sigma_n^2 I \right)^{-1} \bm{y}
+\label{gp_mean}
+\end{equation}
+and covariance:
+\begin{equation}
+V[{f}_*] = k(\bm{x}_*,\bm{x}_*) -  \bm{k}_*^\top \left( K' + \sigma_n^2 I \right)^{-1} \bm{k}_*
+\label{gp_covar}
+\end{equation}
+where $\bar{f}_*$ is the mean of the posterior, $k(\bm{x}_*,\bm{x}_*)$ is the test point's prior variance. $\bm{k}_*$ is the covariance between the test and training points, $K'$ is the covariance between (the latent function that describes the) training points, $\sigma_n^2$ is the iid noise added to each observation and $\bm{y}$ are the output observed values of the training data.
+
+We note that (ignoring any previous parameter selection) the covariance does not depend on the training output values (in $\bm{y}$).
+
+Concentrating then on the mean function, as \citet{williams2006gaussian} notes that, using the representer theorem, we can rewrite the above expression as the weighted sum of $n$ kernel functions;
+\begin{equation}
+\bar{f}(\bm{x}_*) = \sum_{i=1}^n {\alpha_i k(\bm{x}_i,\bm{x}_*)}
+\label{gp_rep_mean}
+\end{equation}
+where $\bm{\alpha} = \left( K' + \sigma_n^2 I \right)^{-1} \bm{y}$. For simplicity in the following we replace $K' + \sigma_n^2 I$ with $K$.
+
+We are interested in finding,
+\begin{dmath}
+|| f_D(\bm{x_*}) - f_{D'(\bm{x_*})} ||_H^2 = \\ \Big{\langle} f_D(\bm{x_*}) - f_{D'(\bm{x_*})}, f_D(\bm{x_*}) - f_{D'(\bm{x_*})} \Big{\rangle}
+\label{norm_squared}
+\end{dmath}
+In \citet{hall2013differential}, the vector $\bm{x}$ is identical to $\bm{x'}$ with the exception of the last element $n$. In our case the inputs are identical (we are not trying to protect this part of the data). Instead it is the values of $\bm{\alpha}$ that we need to offer privacy.
+\begin{dmath}
+{f_D(\bm{x_*}) - f_D'(\bm{x_*})=} \\ \sum_{i=1}^n \alpha_i k(\bm{x_*},\bm{x}_i) \\ - \sum_{i=1}^n \alpha'_i k(\bm{x_*},\bm{x}_i)
+\label{fun_diff}
+\end{dmath}
+We can rewrite this as;
+\begin{dmath}
+{f_D(\bm{x_*}) - f_D'(\bm{x_*})=} \\  \sum_{i=1}^n k(\bm{x_*},\bm{x}_i) \left(\alpha_i - \alpha'_i\right)
+\label{fun_diff}
+\end{dmath}
+In the kernel density estimation example, in \citet{hall2013differential}, all but the last term in the two summations cancel as the $\alpha$ terms were absent. In our case however they remain and, generally, $\alpha_i \neq \alpha_i'$. We therefore need to provide a bound on difference between the values of $\alpha_i$ and $\alpha_i'$.
+
+To reiterate, $\bm{\alpha} = K^{-1} \bm{y}$. So the difference between the two datasets is,
+\begin{dmath}
+\bm{\alpha} - \bm{\alpha}' = K^{-1} \bm{y} - K^{-1} \bm{y'} = K^{-1} \left(\bm{y} - \bm{y}' \right)
+\label{alphadiff}
+\end{dmath}
+
+We note that all the values of $\bm{y}$ and $\bm{y}'$ are equal except for the last element which differs by at most $\Delta_y$. I.e. equation \ref{alphadiff} is bounded by $\Delta_y$ times the maximum possible sum of the last column in $K^{-1}$ (the infinity-norm of $K^{-1}$).
+
+As the value of $K$ doesn't contain private information itself (it is dependent purely on the input and the features of the kernel) we can find the exact value of $||K^{-1}||_\infty$. We shall call this value $b(K)$.
+
+\subsubsection{Approximate Bound on the infinity norm}
+The following bound may be useful later when generalising the tool to have private inputs too.
+
+\citet{varah1975lower} show that if $J$ is \emph{strictly diagonally dominant}\footnote{A matrix, $J$, is strictly diagonally dominant if $\Delta_i(J) > 0$ for all $1 \leq i \leq n$.} then:
+$$||J^{-1}||_\infty \leq \max\limits_{1 \leq i \leq n} \frac{1}{\Delta_i(J)} = b(J)$$
+
+where we've defined this bound as $b(J)$. We also define $\Delta_i(J) = |J_{ii}| - \sum_{j \neq i} |J_{ij}|$, i.e. the sum of the off diagonal elements in row $i$ subtracted from the diagonal element. 
+
+So if $K$ is strictly diagonally dominant (which is achieved if the inputs are sufficiently far apart, and/or if sufficient uncertainty exists on the outputs), then we have a bound on the sums of its rows.
+
+The above bound means that,
+\begin{dmath}
+\sum_{i=1}^n \alpha_i - \alpha'_i \leq \Delta_y b(J)
+\end{dmath}
+
+\subsubsection{Upper bound calculation}
+
+Returning to the calculation of the $l_2$ sensitivity, we can expand equation \ref{fun_diff} substituted into \ref{norm_squared}:
+\begin{dmath}
+||f_D(\bm{x_*}) - f_D'(\bm{x_*})||^2 = \\ \left\langle \sum_{i=1}^n (\alpha_i - \alpha'_i) k(x_*,x_i), \\ \sum_{i=1}^n (\alpha_i - \alpha'_i) k(x_*,x_i) \right\rangle
+\end{dmath}
+
+The rbf kernel has a maximum value of one. We also already know that the inputs are spaced some non-zero distance apart, so the weighted sum of $\alpha_i-\alpha_i'$ will be less than or equal to the sum of $\alpha_i - \alpha_i'$, which we already know have an upper bound of $\Delta_y b(K)$. This means that our upper bound for 
+\begin{dmath}
+||f_D(\bm{x_*}) - f_D'(\bm{x_*})||^2  \leq \Delta_y^2 \; b(K)^2
+\label{norm_squared_2}
+\end{dmath}
+
+\begin{figure}[H]
+  \centering
+    \includegraphics[width=1 \columnwidth]{figure1}
+  \caption{The blue line indicates the prediction from the Gaussian Process, while the red indicates a differentially private equivalent.}  
+  \label{figure1}
+\end{figure}
+
+Let us consider a particular example, the number of people of each age in a local area in the UK. If we assume an rbf kernel with lengthscale of 10 years, and homostadastic noise standard deviation of 3.2 people and a one dimensional dataset with 50 points placed uniformly 2 years apart. Then we can find the bound on the infinity-norm of the inverse covariance, $b(K)$. \sout{In this case the covariance matrix is not diagonal dominant, but we can find the empirical answer which for the given parameters is less than $1.0$.}. The empirical value can be determined without compromising privacy, and is equal to 0.197. This gives us the sensitivity (as $\Delta_y=1$) of $\Delta = \sqrt{||f_D(\bm{x_*}) - f_D'(\bm{x_*})||^2} \leq \\ \sqrt{0.197^2 \times 1^2} = 0.197$. 
+
+The scaling factor that we need to multiply by our GP sample is $\frac{\Delta c(\delta)}{\varepsilon}$ where $c(\delta) \geq \sqrt{2 ln \frac{2}{\delta}}$. We continue our example with values of $\varepsilon=1$ and $\delta=0.01$. Substituting in our given values; $c(\delta) = 3.255$, so the scaling factor we should multiply our sampled Gaussian with is $0.64$.
+
+Figure \ref{figure1} illustrates an example dataset with a non-private Gaussian Process mean and the differentially private mean. The private mean function appears to trace a path that describes the dataset as well as the non-private mean.
+
+\section{Adding noise to the inputs}
+
+An alternative, and potentially less complicated approach, involves adding noise to the inputs of the Gaussian Process regression. \sout{Consider again the above example of a histogram of ages. We add noise to the histogram values using the histogram query method described in [cite dwork2014algorithmic], but in our case we add Gaussian noise to allow the simple use of a Gaussian Process with assumptions of Gaussian noise. We now have a series of points, each perturbed by a Gaussian with known variance, and each representing the sum over a domain of ages.}
+Consider a set of children's heights and weights. To preserve anonymity, this dataset is aggregated into the means over age ranges: those aged 0 to 6 months were on average 7.1kg, those aged 7 to 12 months 9.6kg, etc. These averages having had some noise added, to mask individuals using the differential privacy framework. We want to know what the most likely weight is (with confidence intervals) for a child aged (for example) 8 months.
+
+Following \citet{lawrence2006modelling}, we assume that there is some latent (hidden) function, $f(t)$, which describes the actual weight at a given time (without sample noise), there is a second function, $x(s,t)$, which describes the integral between times $s$ and $t$ of $f$. We want to estimate $f(t)$ using the known values of $y(s,t)$ which are noisy samples from $x(s,t)$. Note that we break convention here and use the symbol $x$ as an output, and $s$ and $t$ as inputs. The values of $y$ are calculated, in this case, as the means times the width of the ranges, for example we know that\\ $y(0,6) = 7.1 \times 6 = 42.6\; \textrm{kg months}$.
+
+To construct the Gaussian process posterior we need a expressions for the covariance between
+\begin{itemize}
+\item values of $f(t)$ and $f(t')$ at different times ($t$ and $t'$)
+\item values of $x(s,t)$ and $x(s',t')$, i.e. the covariance between two integrals, each defined by a pair of times.
+\item the `cross covariance' between the latent function $f$ and the output $x$, i.e. between $x(s,t)$ and $f(t')$.
+\end{itemize}
+
+We assume for the rest of this section that the covariance between the values of the latent function $f$ are described by the radial basis function (rbf) kernel.
+\begin{equation}
+k_{ff}(u,u') = \sigma^2\; e^{-{{(u-u')^2} \over {l^2}}}
+\end{equation}
+Where $\sigma^2$ is the scale of the output and $l$ is the one-dimensional length-scale. Note in the future one could extend the following to consider integrals over multidimensional cuboids. We next integrate the kernel over the two time domains,
+\begin{equation}
+k_{xx} = \sigma^2\; \int_s^t \int_{s'}^{t'} k_{ff}(u,u')\; du' du
+\end{equation}
+substituting in our above kernel, and integrating;
+\begin{dmath}
+k_{xx} = \frac{1}{2} \sqrt{\pi } l \sigma^2 \\ \left({(s'-s)}\; \textrm{erf}\left(\frac{s-s'}{l}\right)+(s-t')\;
+   \textrm{erf}\left(\frac{s-t'}{l}\right)+s'\; \textrm{erf}\left(\frac{s'-t}{l}\right)+t\;
+   \textrm{erf}\left(\frac{t-s'}{l}\right)+(t-t')\; \textrm{erf}\left(\frac{t'-t}{l}\right)+\frac{l}{\sqrt{\pi }}\;
+   \left(-e^{-\frac{(s-s')^2}{l^2}}+e^{-\frac{(s-t')^2}{l^2}}+e^{-\frac{(s'-t)^2}{l^2}}-e^{-\frac{(t-t')\;
+   ^2}{l^2}}\right)\right)
+\end{dmath}
+defining $g(z) = z\;\sqrt{\pi}\;\textrm{erf}(z)\;+\;e^{-z^2}$ we can write the above as:
+\begin{dmath}
+k_{xx}((s,t),(s',t')) = \\ \sigma^2 \frac{l^2}{2} \Big[ g \left(\frac{t-s'}{l} \right) + g \left(\frac{t'-s}{l} \right) - g \left(\frac{t-t'}{l} \right) - g \left(\frac{s-s'}{l} \right) \Big]
+\label{kxx}
+\end{dmath}
+
+Similarly we can calculate the cross-covariance between $x$ and $f$.
+\begin{dmath}
+k_{xf}((s,t),(t')) = \frac{\sqrt{\pi } l}{2} \left(\textrm{erf}\left(\frac{t-t'}{l}\right)+\textrm{erf}\left(\frac{t'-s}{l}\right)\right)
+\end{dmath}
+
+Finally for the numerical optimisation of the kernel parameters we need the gradient of $K_{xx}$ wrt $l$ and $\sigma^2$. Defining $h(z) = \frac{z\;\sqrt{\pi}}{2}\;\textrm{erf}(z)\;+\;e^{-z^2}$. We can write the gradient as
+\begin{dmath}
+\frac{\delta k_{xx}}{\delta l} = \sigma^2 l\;\Big[h \Big(\frac{t-s'}{l}\Big) + h \Big(\frac{t'-s}{l}\Big) - h \Big(\frac{t-t'}{l}\Big) - h \Big(\frac{s-s'}{l}\Big) \Big]
+\end{dmath}
+and $\frac{\delta k_{xx}}{\delta \sigma^2}$ is simply the expression for $k_{xx}$ in equation \ref{kxx} with the initial $\sigma^2$ removed.
+
+\subsection{Testing the new kernel}
+
+We use the previous age-histogram dataset from the UK Census. We group 
+
+\section{Numerical comparison}
+
+To test which of the above 
+
+see DP4GP\_using\_new\_kernel for examples
+
+\subsection{Future Work}
+\subsubsection{Inducing inputs}
+
+For this example the sensitivity in y was low due to the histogram nature of the data. If the y values represented individuals that we wanted to protect, the differentially private scaling factor would be far larger.
+ 
+We propose that this excessive scaling can be largely solved by the introduction of inducing inputs. These were originally developed to make large problems more tractable, by effectively reasoning over a smaller number of carefully placed inputs. We note that they will provide two key advantages here. 
+
+\begin{enumerate}
+\item Few inputs means the inputs will be further apart, giving lower bounds on the infinity-norm of the inverse covariance matrix.
+\item The output value of each inducing input is usually affected by several observed data points, this means the sensitivity of each inducing input is smaller (although each input can now contribute to more than one inducing input).
+\end{enumerate}
+
+\subsubsection{Manipulate noise for individual output values}
+
+We could also adjust the noise for individual elements, to control the infinity-norm: For example those columns of the inverse covariance matrix with values greater than a threshold could be reduced by increasing the uncertainty associated with them.
+
+\subsubsection{Extend integral kernel to cuboid integrals}
+
+Need to do some vector calculus.
+
+\subsubsection{Extend integral kernel to non-cuboid integrals}
+
+Could be useful for maps, etc. Maybe could be achieved by passing a 'mask' to the kernel function?
+
+\bibliographystyle{apa-good}
+\bibliography{refs}
+
+\end{multicols}
+
+\end{document}
